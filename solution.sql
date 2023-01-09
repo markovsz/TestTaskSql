@@ -8,7 +8,7 @@ create table Banks (
 
 create table Cities(
     Id int identity not null,
-    Name nvarchar(30) not null,
+    Name nvarchar(30) unique not null,
     primary key (Id)
 );
 
@@ -24,7 +24,7 @@ create table Branches (
 
 create table SocialStatuses(
     Id int identity not null,
-    Name nvarchar(30) not null,
+    Name nvarchar(30) unique not null,
     primary key (Id)
 );
 
@@ -40,12 +40,13 @@ create table Customers(
 
 create table Accounts(
     Id int identity not null,
-    CustomerId int not null,
+    CustomerId int unique not null,
     BankId int not null,
     Balance decimal default(0.0) not null
     primary key (Id),
     foreign key (BankId) references Banks(Id),
-    foreign key (CustomerId) references Customers(Id)
+    foreign key (CustomerId) references Customers(Id),
+    constraint Accounts_Balance_NotNegative check (Balance >= 0.0)
 );
 
 create table Cards(
@@ -53,7 +54,8 @@ create table Cards(
     AccountId int not null,
     Balance decimal default(0.0) not null
     primary key (Id),
-    foreign key (AccountId) references Accounts(Id)
+    foreign key (AccountId) references Accounts(Id),
+    constraint Cards_Balance_NotNegative check (Balance >= 0.0)
 );
 
 delete from dbo.Cards;
@@ -63,7 +65,6 @@ delete from dbo.Banks;
 delete from dbo.Cities;
 delete from dbo.Customers;
 delete from dbo.SocialStatuses;
-delete from dbo.Streets;
 
 insert into Banks(Name) values ('bank A');
 insert into Banks(Name) values ('bank B');
@@ -130,9 +131,9 @@ insert into Cards(AccountId, Balance) values (5, 10.0);
 
 select distinct b.Name
 from dbo.Branches as br
-    inner join dbo.Banks as b 
-    on br.BankId = b.Id
-where br.CityId = 1 /*Полоцк*/
+    inner join dbo.Banks as b on br.BankId = b.Id
+    inner join dbo.Cities as ct on br.CityId = ct.Id
+where ct.Name = 'Полоцк'
 
 
 /*Задание №2*/
@@ -140,12 +141,9 @@ where br.CityId = 1 /*Полоцк*/
 
 select cst.FirstName, crd.Balance, bnk.Name
 from dbo.Cards as crd
-    inner join dbo.Accounts as acc
-    on crd.AccountId = acc.Id
-    inner join dbo.Customers as cst
-    on acc.CustomerId = cst.Id
-    inner join dbo.Banks as bnk
-    on acc.BankId = bnk.Id
+    inner join dbo.Accounts as acc on crd.AccountId = acc.Id
+    inner join dbo.Customers as cst on acc.CustomerId = cst.Id
+    inner join dbo.Banks as bnk on acc.BankId = bnk.Id
 
 /*Задание №3*/
 /*Показать список банковских аккаунтов у которых баланс не совпадает с суммой баланса по карточкам. В отдельной колонке вывести разницу*/
@@ -153,17 +151,13 @@ from dbo.Cards as crd
 select acc.Id, cst.FirstName, cst.LastName, cst.MidName, bnk.Name,
        (acc.Balance - (select sum(crd.Balance) 
                       from dbo.Cards as crd
-                      group by crd.AccountId
-                      having crd.AccountId = acc.Id)) as 'Balance Diff'
+                      where crd.AccountId = acc.Id)) as 'Balance Diff'
 from dbo.Accounts as acc
-    inner join dbo.Customers as cst
-    on acc.CustomerId = cst.Id
-    inner join dbo.Banks as bnk
-    on acc.BankId = bnk.Id
+    inner join dbo.Customers as cst on acc.CustomerId = cst.Id
+    inner join dbo.Banks as bnk on acc.BankId = bnk.Id
 where acc.Balance > (select sum(crd.Balance) 
                       from dbo.Cards as crd
-                      group by crd.AccountId
-                      having crd.AccountId = acc.Id)
+                      where crd.AccountId = acc.Id)
 
 
 
@@ -171,27 +165,21 @@ where acc.Balance > (select sum(crd.Balance)
 /*Вывести кол-во банковских карточек для каждого соц статуса (2 реализации, GROUP BY и подзапросом)*/
 
 /*через group by*/
-select scst.Name, count(crd.Id)
-from dbo.Cards as crd
-    inner join dbo.Accounts as acc
-    on crd.AccountId = acc.Id
-    inner join dbo.Customers as cst
-    on acc.CustomerId = cst.Id
-    inner join dbo.SocialStatuses as scst
-    on cst.SocialStatusId = scst.Id
+select scst.Name, count(crd.Id) as 'Count'
+from dbo.SocialStatuses as scst
+	left join dbo.Customers as cst on scst.Id = cst.SocialStatusId
+    left join dbo.Accounts as acc on cst.Id = acc.CustomerId
+    left join dbo.Cards as crd on crd.AccountId = acc.Id
 group by scst.Name
 
 /*через подзапросы*/
-select scst.Name, 
-       (select count(crd.Id)
-        from dbo.Cards as crd
-        inner join dbo.Accounts as acc
-        on crd.AccountId = acc.Id
-        inner join dbo.Customers as cst
-        on acc.CustomerId = cst.Id
-        group by cst.SocialStatusId
-        having cst.SocialStatusId = scst.Id) as 'Count'
-from dbo.SocialStatuses as scst
+select scst.Name,
+	   (select count(crd.Id)
+	    from dbo.Cards as crd
+			left join dbo.Accounts as acc on acc.Id = crd.AccountId
+			left join dbo.Customers as cst on cst.Id = acc.CustomerId
+		where cst.SocialStatusId = scst.Id) as 'Count'
+from dbo.SocialStatuses as scst;
 
 go
 
@@ -214,16 +202,17 @@ begin
 
     declare @relatedAccountsCount int = (select count(acc.Id)
                                          from dbo.Accounts as acc
-                                            inner join dbo.Customers as cst
-                                            on acc.CustomerId = cst.Id
-                                         group by cst.SocialStatusId
-                                         having cst.SocialStatusId = @socialStatusId);
+                                            inner join dbo.Customers as cst on acc.CustomerId = cst.Id
+                                         where cst.SocialStatusId = @socialStatusId);
     if (@socStatusId = @socialStatusId and @relatedAccountsCount > 0)
         update dbo.Accounts
         set Balance = Balance + 10
         where CustomerId = (select Id 
                             from dbo.Customers as cst
                             where cst.Id = CustomerId and cst.SocialStatusId = @socialStatusId)
+    else
+        print 'Operation hasnt been committed'
+        rollback tran
         
 end
 go
@@ -246,15 +235,12 @@ from dbo.Accounts;
 то у него доступно 30 рублей для перевода на любую из карт*/
 
 select acc.Id, cst.FirstName, cst.LastName, cst.MidName,
-       (acc.Balance - (select sum(crd.Balance) 
+       (acc.Balance - (select coalesce(sum(crd.Balance),0) 
                       from dbo.Cards as crd
-                      group by crd.AccountId
-                      having crd.AccountId = acc.Id)) as 'Balance Diff'
+                      where crd.AccountId = acc.Id)) as 'Balance Diff'
 from dbo.Accounts as acc
-    inner join dbo.Customers as cst
-    on acc.CustomerId = cst.Id
-    inner join dbo.Banks as bnk
-    on acc.BankId = bnk.Id
+    inner join dbo.Customers as cst on acc.CustomerId = cst.Id
+    inner join dbo.Banks as bnk on acc.BankId = bnk.Id
 go
 
 
@@ -286,8 +272,7 @@ begin
     declare @validAmountOfMoneyForTransfer int = (select
                                                   acc.Balance - (select sum(crd.Balance) 
                                                                  from dbo.Cards as crd
-                                                                 group by crd.AccountId
-                                                                 having crd.AccountId = acc.Id)
+                                                                 where crd.AccountId = acc.Id)
                                                   from dbo.Accounts as acc
                                                   where acc.Id = @accountId);
 
@@ -296,7 +281,10 @@ begin
         update dbo.Cards
         set Balance = Balance + @amountOfMoney
         where Id = @cardId
-    commit moneyTransfer
+    else
+        print 'Operation hasnt been committed'
+        rollback
+    commit tran moneyTransfer
 
 end
 go
@@ -318,6 +306,43 @@ go
 /*Написать триггер на таблицы Account/Cards чтобы нельзя была занести значения в поле баланс 
 если это противоречит условиям  (то есть нельзя изменить значение в Account на меньшее, чем сумма балансов по всем карточкам. 
 И соответственно нельзя изменить баланс карты если в итоге сумма на картах будет больше чем баланс аккаунта)*/
+
+create trigger CheckBalanceChangingOnCard
+on dbo.Cards instead of update
+as
+begin;
+    declare @cardId int = (select top(1) Id from deleted);
+    declare @accountId int = (select top(1) AccountId from deleted);
+    declare @newMoneyBalance int = (select sum(crd.Balance) 
+                                 from dbo.Cards as crd
+                                 where crd.AccountId = @accountId);
+    declare @accountMoneyBalance int = (select Balance from dbo.Accounts
+	                                    where Id = @accountId);
+    if(@newMoneyBalance > @accountMoneyBalance)
+    begin
+        print 'Operation havent been committed'
+        rollback;
+	end
+end;
+go
+
+/*проверка*/
+select * from dbo.Cards;
+update dbo.Cards
+set Balance = 10 /*корректный ввод*/
+where Id = 3;
+select * from dbo.Cards;
+go
+
+select * from dbo.Cards;
+update dbo.Cards
+set Balance = 101 /*больше, чем нужно*/
+where Id = 3;
+select * from dbo.Cards;
+go
+
+
+
 create trigger CheckBalanceChangingInAccount
 on dbo.Accounts after update
 as
@@ -325,13 +350,15 @@ begin;
     declare @accountId int = (select top(1) Id from deleted);
     declare @minMoneyBalance int = (select sum(crd.Balance) 
                                  from dbo.Cards as crd
-                                 group by crd.AccountId
-                                 having crd.AccountId = @accountId);
+                                 where crd.AccountId = @accountId);
     declare @newMoneyBalance int = (select top(1) Balance from inserted);
+    print @newMoneyBalance;
+	print @minMoneyBalance;
     if(@minMoneyBalance > @newMoneyBalance)
-        update dbo.Accounts
-        set Balance = (select top(1) Balance from deleted)
-        where Id = @accountId;
+    begin
+        print 'Operation hasnt been committed'
+        rollback;
+    end
 end;
 go
 
@@ -339,7 +366,14 @@ go
 /*проверка*/
 select * from dbo.Accounts;
 update dbo.Accounts
-set Balance = 10
+set Balance = 10 /*меньше, чем нужно*/
+where Id = 3;
+select * from dbo.Accounts;
+go
+
+select * from dbo.Accounts;
+update dbo.Accounts
+set Balance = 101 /*корректный ввод*/
 where Id = 3;
 select * from dbo.Accounts;
 go
