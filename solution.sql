@@ -40,13 +40,14 @@ create table Customers(
 
 create table Accounts(
     Id int identity not null,
-    CustomerId int unique not null,
+    CustomerId int not null,
     BankId int not null,
     Balance decimal default(0.0) not null
     primary key (Id),
     foreign key (BankId) references Banks(Id),
     foreign key (CustomerId) references Customers(Id),
-    constraint Accounts_Balance_NotNegative check (Balance >= 0.0)
+    constraint Accounts_Balance_NotNegative check (Balance >= 0.0),
+    constraint Accounts_CustomerAndBank_Unique unique(CustomerId, BankId)
 );
 
 create table Cards(
@@ -113,14 +114,14 @@ insert into Accounts(CustomerId, BankId, Balance) values (4, 5, 100.0);
 insert into Accounts(CustomerId, BankId, Balance) values (3, 3, 30.0);
 insert into Accounts(CustomerId, BankId, Balance) values (2, 2, 50.0);
 
-insert into Cards(AccountId, Balance) values (1, 0.0);
-insert into Cards(AccountId, Balance) values (1, 5.0);
-insert into Cards(AccountId, Balance) values (2, 10.0);
-insert into Cards(AccountId, Balance) values (5, 20.0);
-insert into Cards(AccountId, Balance) values (3, 60.0);
-insert into Cards(AccountId, Balance) values (3, 30.0);
-insert into Cards(AccountId, Balance) values (5, 20.0);
-insert into Cards(AccountId, Balance) values (5, 10.0);
+insert into Cards(Id, AccountId, Balance) values (1, 1, 0.0);
+insert into Cards(Id, AccountId, Balance) values (2, 1, 5.0);
+insert into Cards(Id, AccountId, Balance) values (3, 2, 10.0);
+insert into Cards(Id, AccountId, Balance) values (4, 5, 20.0);
+insert into Cards(Id, AccountId, Balance) values (5, 3, 60.0);
+insert into Cards(Id, AccountId, Balance) values (6, 3, 30.0);
+insert into Cards(Id, AccountId, Balance) values (7, 5, 20.0);
+insert into Cards(Id, AccountId, Balance) values (8, 5, 10.0);
 
 
 
@@ -139,7 +140,7 @@ where ct.Name = 'Полоцк'
 /*Задание №2*/
 /*Получить список карточек с указанием имени владельца, баланса и названия банка*/
 
-select cst.FirstName, crd.Balance, bnk.Name
+select crd.Id, cst.FirstName, crd.Balance, bnk.Name
 from dbo.Cards as crd
     inner join dbo.Accounts as acc on crd.AccountId = acc.Id
     inner join dbo.Customers as cst on acc.CustomerId = cst.Id
@@ -149,13 +150,13 @@ from dbo.Cards as crd
 /*Показать список банковских аккаунтов у которых баланс не совпадает с суммой баланса по карточкам. В отдельной колонке вывести разницу*/
 
 select acc.Id, cst.FirstName, cst.LastName, cst.MidName, bnk.Name,
-       (acc.Balance - (select sum(crd.Balance) 
+       (acc.Balance - (select coalesce(sum(crd.Balance), 0) 
                       from dbo.Cards as crd
                       where crd.AccountId = acc.Id)) as 'Balance Diff'
 from dbo.Accounts as acc
     inner join dbo.Customers as cst on acc.CustomerId = cst.Id
     inner join dbo.Banks as bnk on acc.BankId = bnk.Id
-where acc.Balance > (select sum(crd.Balance) 
+where acc.Balance > (select coalesce(sum(crd.Balance), 0) 
                       from dbo.Cards as crd
                       where crd.AccountId = acc.Id)
 
@@ -211,8 +212,7 @@ begin
                             from dbo.Customers as cst
                             where cst.Id = CustomerId and cst.SocialStatusId = @socialStatusId)
     else
-        print 'Operation hasnt been committed'
-        rollback tran
+        print 'Operation hasnt been done'
         
 end
 go
@@ -240,7 +240,6 @@ select acc.Id, cst.FirstName, cst.LastName, cst.MidName,
                       where crd.AccountId = acc.Id)) as 'Balance Diff'
 from dbo.Accounts as acc
     inner join dbo.Customers as cst on acc.CustomerId = cst.Id
-    inner join dbo.Banks as bnk on acc.BankId = bnk.Id
 go
 
 
@@ -255,15 +254,13 @@ go
 Переводить БЕЗОПАСНО. То есть использовать транзакцию*/
 
 create proc TransferMoneyFromAccountToCard
-    @accountId int,
     @cardId int,
     @amountOfMoney decimal
 as
 begin
-    
-    declare @accountIdFromTable int = (select Id 
-                                       from dbo.Accounts
-                                       where Id = @accountId);
+    declare @accountId int = (select AccountId 
+                                       from dbo.Cards
+                                       where Id = @cardId);
 
     declare @cardIdFromTable int = (select Id 
                                     from dbo.Cards
@@ -277,15 +274,18 @@ begin
                                                   where acc.Id = @accountId);
 
     begin tran moneyTransfer
-    if(@accountIdFromTable = @accountId and @cardIdFromTable = @cardId and @validAmountOfMoneyForTransfer > @amountOfMoney)
+    if(@cardIdFromTable = @cardId and @validAmountOfMoneyForTransfer > @amountOfMoney)
+    begin
         update dbo.Cards
         set Balance = Balance + @amountOfMoney
         where Id = @cardId
+        commit tran moneyTransfer
+    end
     else
+    begin
         print 'Operation hasnt been committed'
-        rollback
-    commit tran moneyTransfer
-
+        rollback tran moneyTransfer
+    end
 end
 go
 
@@ -293,7 +293,16 @@ go
 select * from dbo.Accounts;
 select * from dbo.Cards;
 go
-exec dbo.TransferMoneyFromAccountToCard 3, 5, 10.0
+exec dbo.TransferMoneyFromAccountToCard 5, 1.0 /*корректное значение*/
+go
+select * from dbo.Accounts;
+select * from dbo.Cards;
+go
+
+select * from dbo.Accounts;
+select * from dbo.Cards;
+go
+exec dbo.TransferMoneyFromAccountToCard 5, 11.0 /*некорректное значение*/
 go
 select * from dbo.Accounts;
 select * from dbo.Cards;
@@ -308,11 +317,11 @@ go
 И соответственно нельзя изменить баланс карты если в итоге сумма на картах будет больше чем баланс аккаунта)*/
 
 create trigger CheckBalanceChangingOnCard
-on dbo.Cards instead of update
+on dbo.Cards after insert, update
 as
 begin;
-    declare @cardId int = (select top(1) Id from deleted);
-    declare @accountId int = (select top(1) AccountId from deleted);
+    declare @cardId int = (select top(1) Id from inserted);
+    declare @accountId int = (select top(1) AccountId from inserted);
     declare @newMoneyBalance int = (select sum(crd.Balance) 
                                  from dbo.Cards as crd
                                  where crd.AccountId = @accountId);
@@ -331,6 +340,12 @@ select * from dbo.Cards;
 update dbo.Cards
 set Balance = 10 /*корректный ввод*/
 where Id = 3;
+select * from dbo.Cards;
+go
+
+select * from dbo.Cards;
+insert into dbo.Cards (AccountId, Balance)
+values (3, 90) /*слишком большое значение*/
 select * from dbo.Cards;
 go
 
