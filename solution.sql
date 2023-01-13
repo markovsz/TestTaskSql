@@ -52,11 +52,14 @@ create table Accounts(
 
 create table Cards(
     Id int identity not null,
+    CardNumber nvarchar(16) not null,
     AccountId int not null,
     Balance decimal default(0.0) not null
     primary key (Id),
     foreign key (AccountId) references Accounts(Id),
-    constraint Cards_Balance_NotNegative check (Balance >= 0.0)
+    constraint Cards_Balance_NotNegative check (Balance >= 0.0),
+    constraint Cards_CardNumber_Length16 check(len(CardNumber) = 16),
+    constraint Cards_CardNumber_OnlyDigits Check(CardNumber not like '%[^0-9]%')
 );
 
 delete from dbo.Cards;
@@ -114,14 +117,14 @@ insert into Accounts(CustomerId, BankId, Balance) values (4, 5, 100.0);
 insert into Accounts(CustomerId, BankId, Balance) values (3, 3, 30.0);
 insert into Accounts(CustomerId, BankId, Balance) values (2, 2, 50.0);
 
-insert into Cards(Id, AccountId, Balance) values (1, 1, 0.0);
-insert into Cards(Id, AccountId, Balance) values (2, 1, 5.0);
-insert into Cards(Id, AccountId, Balance) values (3, 2, 10.0);
-insert into Cards(Id, AccountId, Balance) values (4, 5, 20.0);
-insert into Cards(Id, AccountId, Balance) values (5, 3, 60.0);
-insert into Cards(Id, AccountId, Balance) values (6, 3, 30.0);
-insert into Cards(Id, AccountId, Balance) values (7, 5, 20.0);
-insert into Cards(Id, AccountId, Balance) values (8, 5, 10.0);
+insert into Cards(AccountId, CardNumber, Balance) values (1, '9018461930481734', 0.0);
+insert into Cards(AccountId, CardNumber, Balance) values (1, '9018461912481734', 5.0);
+insert into Cards(AccountId, CardNumber, Balance) values (2, '9018281273123778', 10.0);
+insert into Cards(AccountId, CardNumber, Balance) values (5, '9018203480123778', 20.0);
+insert into Cards(AccountId, CardNumber, Balance) values (3, '9018904555123778', 60.0);
+insert into Cards(AccountId, CardNumber, Balance) values (3, '9018344555123778', 30.0);
+insert into Cards(AccountId, CardNumber, Balance) values (5, '1827203480123778', 20.0);
+insert into Cards(AccountId, CardNumber, Balance) values (5, '1827461930481734', 10.0);
 
 
 
@@ -140,7 +143,7 @@ where ct.Name = 'Полоцк'
 /*Задание №2*/
 /*Получить список карточек с указанием имени владельца, баланса и названия банка*/
 
-select crd.Id, cst.FirstName, crd.Balance, bnk.Name
+select crd.CardNumber, cst.FirstName, crd.Balance, bnk.Name
 from dbo.Cards as crd
     inner join dbo.Accounts as acc on crd.AccountId = acc.Id
     inner join dbo.Customers as cst on acc.CustomerId = cst.Id
