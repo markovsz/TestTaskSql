@@ -347,7 +347,7 @@ select * from dbo.Cards;
 go
 
 select * from dbo.Cards;
-insert into dbo.Cards (AccountId, Balance)
+insert into dbo.Cards (AccountId, CardNumber, Balance)
 values (3, '1234567891234567', 90) /*слишком большое значение*/
 select * from dbo.Cards;
 go
