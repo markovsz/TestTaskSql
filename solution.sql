@@ -52,7 +52,7 @@ create table Accounts(
 
 create table Cards(
     Id int identity not null,
-    CardNumber nvarchar(16) not null,
+    CardNumber nvarchar(16) unique not null,
     AccountId int not null,
     Balance decimal default(0.0) not null
     primary key (Id),
