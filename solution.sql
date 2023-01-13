@@ -348,7 +348,7 @@ go
 
 select * from dbo.Cards;
 insert into dbo.Cards (AccountId, Balance)
-values (3, 90) /*слишком большое значение*/
+values (3, '1234567891234567', 90) /*слишком большое значение*/
 select * from dbo.Cards;
 go
 
